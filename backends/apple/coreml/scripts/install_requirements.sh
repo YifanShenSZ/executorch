@@ -46,7 +46,7 @@ cmake -S "$COREMLTOOLS_DIR_PATH" -B "$COREMLTOOLS_DIR_PATH/build"
 cmake --build "$COREMLTOOLS_DIR_PATH/build" --parallel
 
 echo "${green}ExecuTorch: Installing coremltools."
-pip install "$COREMLTOOLS_DIR_PATH"
+# pip install "$COREMLTOOLS_DIR_PATH"
 STATUS=$?
 if [ $STATUS -ne 0 ]; then
     echo "${red}ExecuTorch: Failed to install coremltools."
@@ -74,3 +74,6 @@ sh "$COREML_DIR_PATH/scripts/install_inmemoryfs.sh"
 echo "${green}ExecuTorch: Copying protobuf files."
 mkdir -p "$COREML_DIR_PATH/runtime/sdk/format/" 
 cp -rf "$PROTOBUF_FILES_DIR_PATH" "$COREML_DIR_PATH/runtime/sdk/format/" 
+
+echo "${green}ExecuTorch: Pip installing mpmath==1.3.0 to be compatible with sympy==1.12"
+pip install mpmath==1.3.0

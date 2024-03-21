@@ -9,6 +9,7 @@ import executorch.exir
 import torch
 import torchvision
 
+from executorch.backends.apple.coreml.compiler import CoreMLBackend
 from executorch.backends.apple.coreml.partition.coreml_partitioner import (
     CoreMLPartitioner,
 )
