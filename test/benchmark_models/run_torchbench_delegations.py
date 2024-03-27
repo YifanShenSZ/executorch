@@ -247,8 +247,10 @@ if __name__ == "__main__":
 
     ###################################################
     # TODO: SET THESE CORRECTLY
-    delegations = ["no_backend", "xnnpack", "xnnpack_quantized", "mps", "coreml"]
-    write_dir = f"/Users/scroy/etorch/runs/test"
+    # delegations = ["no_backend", "xnnpack", "xnnpack_quantized", "mps", "coreml"]
+    delegations = ["coreml"]
+    # write_dir = f"/Users/scroy/etorch/runs/test"
+    write_dir = "logs"
     ###################################################
 
     for delegation in delegations:
