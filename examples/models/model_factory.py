@@ -36,7 +36,8 @@ class EagerModelFactory:
         """
         package_prefix = "executorch." if not os.getcwd().endswith("executorch") else ""
         module = importlib.import_module(
-            f"{package_prefix}examples.models.{module_name}"
+            # f"{package_prefix}examples.models.{module_name}"
+            f"models.{module_name}"
         )
 
         if hasattr(module, model_class_name):
