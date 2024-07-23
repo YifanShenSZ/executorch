@@ -78,8 +78,41 @@ class TestCoreMLPartitioner(unittest.TestCase):
             "getitem",
         ]
 
+    def test_buffer(self):
+        SHAPE = (2, 3)
+
+        class Model(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.register_buffer("state_1", torch.zeros(SHAPE, dtype=torch.float32))
+
+            def forward(self, x):
+                add = self.state_1.add_(x)
+                return add
+
+        model = Model()
+        model.eval()
+
+        example_inputs = (torch.randn(SHAPE),)
+        exir_program_aten = torch.export.export(model, example_inputs)
+
+        edge_program_manager = executorch.exir.to_edge(
+            exir_program_aten, compile_config=self.edge_compile_config
+        )
+        delegated_program_manager = edge_program_manager.to_backend(CoreMLPartitioner())
+
+        assert [
+            node.target.__name__
+            for node in delegated_program_manager.exported_program().graph.nodes
+            if node.op == "call_function"
+        ] == [
+            "executorch_call_delegate",
+            "getitem",
+        ]
+
 
 if __name__ == "__main__":
     test_runner = TestCoreMLPartitioner()
-    test_runner.test_add_sub_skip_mm()
-    test_runner.test_vit_skip_conv()
+    # test_runner.test_add_sub_skip_mm()
+    # test_runner.test_vit_skip_conv()
+    test_runner.test_buffer()
