@@ -392,4 +392,8 @@ class CoreMLBackend(BackendDetails):
             compute_units=compute_units,
         )
 
+        with open("Debug/model.mil", 'w') as f:
+            print(mlmodel._mil_program, file=f)
+        mlmodel.save("Debug/model.mlpackage")
+
         return CoreMLBackend.preprocess_model(mlmodel, model_type=model_type)
