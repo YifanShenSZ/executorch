@@ -102,8 +102,10 @@ class SDPASimple(torch.nn.Module):
         k, v = self.kv_cache.update(input_pos, k, v)
         attn_mask = mask[None, None, input_pos]
 
-        k = k.repeat_interleave(self.n_rep, dim=1)
-        v = v.repeat_interleave(self.n_rep, dim=1)
+        if self.n_rep > 1:
+            k = k.repeat_interleave(self.n_rep, dim=1)
+            v = v.repeat_interleave(self.n_rep, dim=1)
+
         scale_factor = 1 / math.sqrt(q.size(-1))
         attn_weight = q @ k.transpose(-2, -1) * scale_factor
         attn_weight += attn_mask
