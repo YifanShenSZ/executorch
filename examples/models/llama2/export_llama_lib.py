@@ -297,6 +297,7 @@ def build_args_parser() -> argparse.ArgumentParser:
         action="store_false",
         help="Delegate SDPA to Core ML iOS18.sdpa",
     )
+    parser.add_argument("--coreml-torch-jit-trace-and-export", action="store_true")
     parser.add_argument(
         "--qnn",
         action="store_true",
@@ -490,6 +491,36 @@ def _validate_args(args):
 def _export_llama(modelname, args) -> LLMEdgeManager:  # noqa: C901
     _validate_args(args)
     pt2e_quant_params, quantizers, quant_dtype = get_quantizer_and_quant_params(args)
+
+    if args.coreml_torch_jit_trace_and_export:
+        torch_model = _prepare_for_llama_export(modelname, args).model
+        torch_model.eval()
+        if args.use_kv_cache:
+            example_inputs = (
+                torch.tensor(
+                    [[1]], dtype=torch.long
+                ),  # tokens, with kv cache our input token length is always just 1 token.
+                torch.tensor(
+                    [0], dtype=torch.long
+                ),  # start_pos, what token of output are we on.
+            )
+        else:
+            example_inputs = (
+                torch.tensor(
+                    [[1, 2, 3]], dtype=torch.long
+                ),  # tokens, without kv cache our input token length is dynamic
+            )
+        dynamic_shapes = None
+        if args.enable_dynamic_shape:
+            sequence_length = torch.export.Dim(name="sequence_length", max=64)
+            dynamic_shapes = {"tokens": {1: sequence_length}}
+        traced_model = torch.jit.trace(torch_model, example_inputs)
+        torch.jit.save(traced_model, "Debug/torch-jit-trace.pt")
+        if args.use_kv_cache:
+            raise ValueError("torch.export cannot export stateful llama, needs executorch workaround")
+        exported_model = torch.export.export(torch_model, example_inputs, dynamic_shapes=dynamic_shapes)
+        torch.export.save(exported_model, "Debug/torch-export.pt2")
+        raise ValueError("serialization finished")
 
     # export_to_edge
     if args.coreml and args.coreml_preserve_sdpa:
