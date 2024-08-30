@@ -58,9 +58,6 @@ def get_mps_partitioner(use_kv_cache: bool = False):
 def get_coreml_partitioner(
     use_kv_cache: bool = False, pt2e_quantize: Optional[str] = None, quantization_mode: Optional[str] = None
 ):
-    assert (
-        use_kv_cache is True
-    ), "CoreML backend currently only supports static shape and use_kv_cache=True is the only way to support it at the moment"
     try:
         import coremltools as ct
         from executorch.backends.apple.coreml.compiler import (  # pyre-ignore
