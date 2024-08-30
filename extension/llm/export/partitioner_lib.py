@@ -56,12 +56,14 @@ def get_mps_partitioner(use_kv_cache: bool = False):
 
 
 def get_coreml_partitioner(
+    preserve_sdpa: bool = True,
     enable_state: bool = False,
     pt2e_quantize: Optional[str] = None,
     quantization_mode: Optional[str] = None
 ):
     try:
         import coremltools as ct
+        import torch
         from executorch.backends.apple.coreml.compiler import (  # pyre-ignore
             CoreMLBackend,
         )
@@ -74,6 +76,9 @@ def get_coreml_partitioner(
         )
 
     minimum_deployment_target = ct.target.iOS15
+    # In Core ML, op sdpa is introduced in iOS 18
+    if preserve_sdpa:
+        minimum_deployment_target = max(minimum_deployment_target, ct.target.iOS18)
     # In Core ML, stateful execution is introduced in iOS 18
     if enable_state:
         minimum_deployment_target = max(minimum_deployment_target, ct.target.iOS18)
@@ -100,6 +105,7 @@ def get_coreml_partitioner(
     return CoreMLPartitioner(  # pyre-fixme[16]
         compile_specs=compile_specs,
         take_over_mutable_buffer=enable_state,
+        ops_not_to_decompose=[torch.ops.aten.scaled_dot_product_attention.default] if preserve_sdpa else None,
     )
 
 

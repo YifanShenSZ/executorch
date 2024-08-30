@@ -85,6 +85,8 @@ aten_op_to_transform_op = {}
 # Map from the transformed ops registered in the edge_no_decomp_namespace to aten ops.
 transform_op_to_aten_op = {}
 
+COREML_PRESERVE_OPS_IN_TO_EDGE = ()
+
 
 def _get_updated_range_constraints(gm):
     def get_shape_env(gm):
@@ -1079,7 +1081,10 @@ def to_edge(
 
     for name, program in aten_programs.items():
         # Decompose to Core ATen
-        program = program.run_decompositions(_default_decomposition_table())
+        program = program.run_decompositions(
+            _default_decomposition_table(),
+            COREML_PRESERVE_OPS_IN_TO_EDGE,
+        )
         edge_programs[name] = _generate_edge_program(name, config, program)
 
     return EdgeProgramManager(edge_programs, constant_methods, config)

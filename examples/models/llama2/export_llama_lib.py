@@ -22,6 +22,8 @@ import pkg_resources
 
 import torch
 
+import executorch.exir
+
 from executorch.devtools.etrecord import generate_etrecord
 
 from executorch.examples.models.llama2.llama_transformer import ModelArgs
@@ -289,6 +291,13 @@ def build_args_parser() -> argparse.ArgumentParser:
         help="Delegate mutable buffer to Core ML state",
     )
     parser.add_argument(
+        "--coreml-decompose-sdpa",
+        dest="coreml_preserve_sdpa",
+        default=True,  # Enable this by default
+        action="store_false",
+        help="Delegate SDPA to Core ML iOS18.sdpa",
+    )
+    parser.add_argument(
         "--qnn",
         action="store_true",
         help="Delegate llama2 to qnn backend (Qualcomm), please use it --kv_cahce=True",
@@ -412,11 +421,17 @@ def _prepare_for_llama_export(modelname: str, args) -> LLMEdgeManager:
             transforms.append(replace_sdpa_with_flex_sdpa)
             transforms.append(replace_causal_mask)
 
-        elif args.coreml or args.mps:
-            # Currently qnn/coreml/mps doesn't support sdpa op, use the simpler decomposition
+        elif args.mps:
+            # Currently mps doesn't support sdpa op, use the simpler decomposition
             # to get free perf gain.
             transforms.append(replace_sdpa_with_simple_sdpa)
             transforms.append(replace_causal_mask)
+
+    if args.coreml:
+        if not args.coreml_preserve_sdpa:
+            transforms.append(replace_sdpa_with_simple_sdpa)
+            transforms.append(replace_causal_mask)
+
     return (
         _load_llama_model(
             modelname=modelname,
@@ -477,6 +492,9 @@ def _export_llama(modelname, args) -> LLMEdgeManager:  # noqa: C901
     pt2e_quant_params, quantizers, quant_dtype = get_quantizer_and_quant_params(args)
 
     # export_to_edge
+    if args.coreml and args.coreml_preserve_sdpa:
+        import executorch.exir.program._program
+        executorch.exir.program._program.COREML_PRESERVE_OPS_IN_TO_EDGE = (torch.ops.aten.scaled_dot_product_attention.default,)
     builder_exported_to_edge = (
         _prepare_for_llama_export(modelname, args)
         .capture_pre_autograd_graph()
@@ -511,7 +529,10 @@ def _export_llama(modelname, args) -> LLMEdgeManager:  # noqa: C901
 
     if args.coreml:
         coreml_partitioner = get_coreml_partitioner(
-            args.use_kv_cache and args.coreml_enable_state, args.pt2e_quantize, args.quantization_mode
+            args.coreml_preserve_sdpa,
+            args.use_kv_cache and args.coreml_enable_state,
+            args.pt2e_quantize,
+            args.quantization_mode,
         )
         partitioners.append(coreml_partitioner)
         modelname = f"coreml_{modelname}"
