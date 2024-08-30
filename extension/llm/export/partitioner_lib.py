@@ -56,7 +56,9 @@ def get_mps_partitioner(use_kv_cache: bool = False):
 
 
 def get_coreml_partitioner(
-    use_kv_cache: bool = False, pt2e_quantize: Optional[str] = None, quantization_mode: Optional[str] = None
+    enable_state: bool = False,
+    pt2e_quantize: Optional[str] = None,
+    quantization_mode: Optional[str] = None
 ):
     try:
         import coremltools as ct
@@ -72,7 +74,10 @@ def get_coreml_partitioner(
         )
 
     minimum_deployment_target = ct.target.iOS15
-    # In Core ML, quantization in introduced in iOS 16
+    # In Core ML, stateful execution is introduced in iOS 18
+    if enable_state:
+        minimum_deployment_target = max(minimum_deployment_target, ct.target.iOS18)
+    # In Core ML, quantization is introduced in iOS 16
     if pt2e_quantize is not None:
         minimum_deployment_target = max(minimum_deployment_target, ct.target.iOS16)
     # In Core ML, 8-bit activation quantization is introduced in iOS 17
@@ -84,13 +89,6 @@ def get_coreml_partitioner(
         or quantization_mode == "coreml_g4w"
     ):
         minimum_deployment_target = max(minimum_deployment_target, ct.target.iOS18)
-    # In Core ML, stateful execution is introduced in iOS 18
-    # TODO (https://github.com/pytorch/executorch/issues/4209)
-    # For now, since mutable buffer is kept in executorch runtime,
-    # state is out of place and can be handled by older iOS.
-    # Once mutable buffer can be handed over to delegate, i.e. state becomes in-place, we will have
-    # if use_kv_cache:
-    #     minimum_deployment_target = max(minimum_deployment_target, ct.target.iOS18)
 
     compile_specs = CoreMLBackend.generate_compile_specs(  # pyre-fixme[16]
         minimum_deployment_target=minimum_deployment_target,
@@ -101,6 +99,7 @@ def get_coreml_partitioner(
     )
     return CoreMLPartitioner(  # pyre-fixme[16]
         compile_specs=compile_specs,
+        take_over_mutable_buffer=enable_state,
     )
 
 
