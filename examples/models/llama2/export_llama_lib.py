@@ -294,6 +294,11 @@ def build_args_parser() -> argparse.ArgumentParser:
         help="This option is only for coreml, and is only supported for MacOS15+/iOS18+",
     )
     parser.add_argument(
+        "--coreml-preserve-sdpa",
+        action="store_true",
+        help="This option is only for coreml: Preserve sdpa in torch edge program to use coreml iOS18.sdpa op",
+    )
+    parser.add_argument(
         "--coreml-quantize",
         default=None,
         choices=["b4w"],
@@ -437,11 +442,20 @@ def _prepare_for_llama_export(modelname: str, args) -> LLMEdgeManager:
             transforms.append(replace_rms_norm_with_native_rms_norm)
             transforms.append(convert_linear_to_conv2d)
 
-        elif args.coreml or args.mps:
-            # Currently qnn/coreml/mps doesn't support sdpa op, use the simpler decomposition
+        elif args.mps:
+            # Currently mps doesn't support sdpa op, use the simpler decomposition
             # to get free perf gain.
             transforms.append(replace_sdpa_with_simple_sdpa)
             transforms.append(replace_causal_mask)
+
+        elif args.coreml:
+            # TODO: We might want to explore simple KV cache,
+            # since `k_out[:, :, input_pos] = k_val` decomposition is messy
+            # and is not easy to cleanly map to iOS18.slice_update
+            if not args.coreml_preserve_sdpa:
+                transforms.append(replace_sdpa_with_simple_sdpa)
+                transforms.append(replace_causal_mask)
+
     return (
         _load_llama_model(
             modelname=modelname,
@@ -508,14 +522,13 @@ def _export_llama(modelname, args) -> LLMEdgeManager:  # noqa: C901
     pt2e_quant_params, quantizers, quant_dtype = get_quantizer_and_quant_params(args)
 
     # export_to_edge
-    builder_exported_to_edge = (
+    builder_exported_to_aten = (
         _prepare_for_llama_export(modelname, args)
         .capture_pre_autograd_graph()
         .pt2e_quantize(quantizers)
-        .export_to_edge()
     )
 
-    modelname = builder_exported_to_edge.modelname
+    modelname = builder_exported_to_aten.modelname
 
     # to_backend
     partitioners = []
@@ -543,12 +556,18 @@ def _export_llama(modelname, args) -> LLMEdgeManager:  # noqa: C901
     if args.coreml:
         coreml_partitioner = get_coreml_partitioner(
             args.use_kv_cache and args.coreml_enable_state,
+            args.coreml_preserve_sdpa,
             args.embedding_quantize,
             args.pt2e_quantize,
             args.coreml_quantize,
         )
         partitioners.append(coreml_partitioner)
         modelname = f"coreml_{modelname}"
+
+    if args.coreml and args.coreml_preserve_sdpa:
+        builder = builder_exported_to_aten.export_to_edge_then_backend(coreml_partitioner)
+    else:
+        builder_exported_to_edge = builder_exported_to_aten.export_to_edge()
 
     if args.qnn:
         from executorch.extension.llm.custom_ops import model_sharding
@@ -578,7 +597,8 @@ def _export_llama(modelname, args) -> LLMEdgeManager:  # noqa: C901
         logging.info("Generating etrecord")
         # Copy the edge manager which will be serialized into etrecord. This is memory-wise expensive.
         edge_manager_copy = copy.deepcopy(builder_exported_to_edge.edge_manager)
-        builder = builder_exported_to_edge.to_backend(partitioners)
+        if not (args.coreml and args.coreml_preserve_sdpa):
+            builder = builder_exported_to_edge.to_backend(partitioners)
         if args.num_sharding > 0 and args.qnn:
             from executorch.backends.qualcomm.utils.utils import canonicalize_program
 
@@ -598,7 +618,8 @@ def _export_llama(modelname, args) -> LLMEdgeManager:  # noqa: C901
             )
             logging.info("Generated etrecord.bin")
     else:
-        builder = builder_exported_to_edge.to_backend(partitioners)
+        if not (args.coreml and args.coreml_preserve_sdpa):
+            builder = builder_exported_to_edge.to_backend(partitioners)
         if args.num_sharding > 0 and args.qnn:
             from executorch.backends.qualcomm.utils.utils import canonicalize_program
 

@@ -25,8 +25,13 @@ from executorch.exir.capture._config import EdgeCompileConfig, ExecutorchBackend
 from executorch.exir.passes import MemoryPlanningPass
 from executorch.exir.passes.quant_fusion_pass import QuantFusionPass
 from executorch.exir.passes.sym_shape_eval_pass import ConstraintBasedSymShapeEvalPass
+from executorch.exir.program._program import to_edge_transform_and_lower
 
-from executorch.extension.export_util.utils import export_to_edge, save_pte_program
+from executorch.extension.export_util.utils import (
+    _to_core_aten,
+    export_to_edge,
+    save_pte_program,
+)
 from executorch.extension.llm.tokenizer.utils import get_tokenizer
 from torch._export import capture_pre_autograd_graph
 from torch.ao.quantization.quantize_pt2e import convert_pt2e, prepare_pt2e
@@ -363,6 +368,34 @@ class LLMEdgeManager:
                     logging.info("No partitioner provided, passing...")
                     continue
 
+        return self
+
+    def export_to_edge_then_backend(self, partitioner: Partitioner) -> "LLMEdgeManager":
+        """
+        Export the model to Edge dialect and retrieve a LLMEdgeManager.
+        """
+        dynamic_shape = self._get_dynamic_shape()
+        edge_config = self._get_edge_config()
+
+        # 1. torch.nn.attention.sdpa_kernel([SDPBackend.MATH]) is for bypassing the dynamo error when tracing
+        # 2. torch.no_grad() is for getting rid of the dropout (not sure why training ops will show up)
+        with torch.nn.attention.sdpa_kernel([SDPBackend.MATH]), torch.no_grad():
+            if self.pre_autograd_graph_module is None:
+                # Run capture_pre_autograd_graph if it didn't run
+                self.capture_pre_autograd_graph()
+            core_aten_ep = _to_core_aten(
+                self.pre_autograd_graph_module,  # pyre-fixme[6]
+                self.example_inputs,
+                dynamic_shape,
+                strict=True,
+                verbose=self.verbose,
+            )
+            self.edge_manager = to_edge_transform_and_lower(
+                core_aten_ep,
+                partitioner=[partitioner],
+                constant_methods=self.metadata,
+                compile_config=edge_config,
+            )
         return self
 
     def to_executorch(self) -> "LLMEdgeManager":
