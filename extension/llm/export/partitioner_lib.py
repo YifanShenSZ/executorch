@@ -6,6 +6,8 @@
 
 from typing import Optional
 
+import torch
+
 
 def get_xnnpack_partitioner():
     from executorch.backends.xnnpack.partition.xnnpack_partitioner import (
@@ -57,6 +59,7 @@ def get_mps_partitioner(use_kv_cache: bool = False):
 
 def get_coreml_partitioner(
     enable_state: bool = False,
+    preserve_sdpa: bool = True,
     embedding_quantize: Optional[str] = None,
     pt2e_quantize: Optional[str] = None,
     coreml_quantize: Optional[str] = None,
@@ -77,6 +80,9 @@ def get_coreml_partitioner(
     minimum_deployment_target = ct.target.iOS15
     # In Core ML, stateful execution is introduced in iOS 18
     if enable_state:
+        minimum_deployment_target = max(minimum_deployment_target, ct.target.iOS18)
+    # In Core ML, sdpa op is introduced in iOS 18
+    if preserve_sdpa:
         minimum_deployment_target = max(minimum_deployment_target, ct.target.iOS18)
     # In Core ML, quantization is introduced in iOS 16
     if embedding_quantize is not None or pt2e_quantize is not None:
@@ -112,9 +118,15 @@ def get_coreml_partitioner(
         model_type=CoreMLBackend.MODEL_TYPE.MODEL,  # pyre-fixme[16]
         op_linear_quantizer_config=op_linear_quantizer_config,
     )
+
     return CoreMLPartitioner(  # pyre-fixme[16]
         compile_specs=compile_specs,
         take_over_mutable_buffer=enable_state,
+        ops_not_to_decompose=(
+            [torch.ops.aten.scaled_dot_product_attention.default]
+            if preserve_sdpa
+            else None
+        ),
     )
 
 
