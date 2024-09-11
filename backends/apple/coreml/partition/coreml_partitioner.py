@@ -3,7 +3,7 @@
 # Please refer to the license found in the LICENSE file in the root directory of the source tree.
 
 import logging
-from typing import List, Optional
+from typing import Callable, List, Optional, Tuple
 
 import coremltools as ct
 
@@ -62,6 +62,7 @@ class CoreMLPartitioner(Partitioner):
         skip_ops_for_coreml_delegation: Optional[List[str]] = None,
         compile_specs: Optional[List[CompileSpec]] = None,
         take_over_mutable_buffer: Optional[bool] = True,
+        ops_not_to_decompose: Optional[List[torch._ops.OpOverload]] = None,
     ) -> None:
         if skip_ops_for_coreml_delegation is None:
             skip_ops_for_coreml_delegation = []
@@ -71,6 +72,17 @@ class CoreMLPartitioner(Partitioner):
             compile_specs=compile_specs if compile_specs is not None else [],
         )
         self.take_over_mutable_buffer = take_over_mutable_buffer
+        if ops_not_to_decompose is not None:
+            self.ops_not_to_decompose = ops_not_to_decompose
+        else:
+            self.ops_not_to_decompose = [
+                torch.ops.aten.scaled_dot_product_attention.default
+            ]
+
+    def ops_to_not_decompose(
+        self, ep: ExportedProgram
+    ) -> Tuple[List[torch._ops.OpOverload], Optional[Callable[[torch.fx.Node], bool]]]:
+        return self.ops_not_to_decompose, None
 
     def partition(self, exported_program: ExportedProgram) -> PartitionResult:
         # Run the CapabilityBasedPartitioner to return the largest possible
