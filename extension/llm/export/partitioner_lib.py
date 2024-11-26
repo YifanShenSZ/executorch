@@ -69,6 +69,7 @@ def get_coreml_partitioner(
     embedding_quantize: Optional[str] = None,
     pt2e_quantize: Optional[str] = None,
     coreml_quantize: Optional[str] = None,
+    coreml_experimental: Optional[bool] = False,
 ):
     try:
         import coremltools as ct
@@ -81,6 +82,27 @@ def get_coreml_partitioner(
     except ImportError:
         raise ImportError(
             "Please install the CoreML backend follwing https://pytorch.org/executorch/main/build-run-coreml.html"
+        )
+
+    # override all if experimental
+    if coreml_experimental:
+        # op_linear_quantizer_config = {
+        #     "mode": "linear_symmetric",
+        #     "dtype": "int4",
+        #     "granularity": "per_block",
+        #     "block_size": 32,
+        #     "weight_threshold": 512,
+        # }
+        compile_specs = CoreMLBackend.generate_compile_specs(  # pyre-fixme[16]
+            minimum_deployment_target=ct.target.iOS18,
+            compute_precision=ct.precision.FLOAT16,
+            compute_unit=ct.ComputeUnit.CPU_AND_NE,
+            model_type=CoreMLBackend.MODEL_TYPE.MODEL,  # pyre-fixme[16]
+            # op_linear_quantizer_config=op_linear_quantizer_config,
+        )
+        return CoreMLPartitioner(  # pyre-fixme[16]
+            compile_specs=compile_specs,
+            take_over_mutable_buffer=False,
         )
 
     def _validate_ios_version() -> None:
@@ -137,7 +159,8 @@ def get_coreml_partitioner(
         op_linear_quantizer_config=op_linear_quantizer_config,
     )
 
-    take_over_mutable_buffer = minimum_deployment_target >= ct.target.iOS18
+    # take_over_mutable_buffer = minimum_deployment_target >= ct.target.iOS18
+    take_over_mutable_buffer = False
 
     return CoreMLPartitioner(  # pyre-fixme[16]
         compile_specs=compile_specs,

@@ -179,7 +179,7 @@ class KVCache(nn.Module):
         )
 
     def update(
-        self, input_pos: torch.Tensor, k_val: torch.Tensor, v_val: torch.Tensor
+        self, input_pos: torch.Tensor, k_val: torch.Tensor, v_val: torch.Tensor, kvcache_pos_mask
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         # input_pos: [S], k_val: [B, H, S, D] or [B, S, H, D] depending on transpose_cache
         if self.enable_dynamic_shape:
@@ -242,12 +242,13 @@ class SDPA(nn.Module):
         bsz,
         seqlen,
         mask: torch.Tensor,
+        kvcache_pos_mask,
     ) -> torch.Tensor:
         q = q.transpose(1, 2)  # (bs, n_local_heads, seqlen, head_dim)
         k = k.transpose(1, 2)
         v = v.transpose(1, 2)
 
-        k, v = self.kv_cache.update(input_pos, k, v)
+        k, v = self.kv_cache.update(input_pos, k, v, kvcache_pos_mask)
         if self.enable_dynamic_shape:
             start_pos = input_pos[-1].item()
             torch._check_is_size(start_pos)
@@ -324,6 +325,7 @@ class Attention(nn.Module):
         x: torch.Tensor,
         freqs_cos: torch.Tensor,
         freqs_sin: torch.Tensor,
+        kvcache_pos_mask,
         input_pos: Optional[torch.Tensor] = None,
     ):
         bsz, seqlen, _ = x.shape
@@ -340,7 +342,7 @@ class Attention(nn.Module):
 
         if self.use_kv_cache:
             assert input_pos is not None
-            output = self.SDPA(input_pos, q, k, v, bsz, seqlen, self.mask)
+            output = self.SDPA(input_pos, q, k, v, bsz, seqlen, self.mask, kvcache_pos_mask)
             return self.wo(output)
 
         q = q.transpose(1, 2)  # (bs, n_local_heads, seqlen, head_dim)
@@ -438,9 +440,9 @@ class TransformerBlock(nn.Module):
         self.attention_norm = RMSNorm(args.dim, eps=args.norm_eps)
         self.ffn_norm = RMSNorm(args.dim, eps=args.norm_eps)
 
-    def forward(self, x, freqs_cos, freqs_sin, input_pos=None):  # x: 1xN
+    def forward(self, x, freqs_cos, freqs_sin, kvcache_pos_mask, input_pos=None):  # x: 1xN
         h = self.attention.forward(
-            self.attention_norm(x), freqs_cos, freqs_sin, input_pos
+            self.attention_norm(x), freqs_cos, freqs_sin, kvcache_pos_mask, input_pos
         )
 
         h = x + h
@@ -495,6 +497,10 @@ class Transformer(nn.Module):
         ] = None,  # Scalar tensor indicating size of window of the caches
         h: Optional[torch.FloatTensor] = None,  # embeddings
     ) -> torch.Tensor:
+        if self.use_kv_cache and not self.params.enable_dynamic_shape:
+            kvcache_pos_mask = torch.zeros((1, 12, self.max_seq_len, 64))
+            kvcache_pos_mask = torch.ops.aten.index_put(kvcache_pos_mask, [None, None, input_pos, None], torch.tensor([[[[1.0]]]]))
+
         if (tokens is None) ^ (h is not None):
             raise ValueError(
                 "You cannot specify both tokens and h at the same time, and must specify either one"
@@ -535,6 +541,7 @@ class Transformer(nn.Module):
                 h,
                 freqs_cos,
                 freqs_sin,
+                kvcache_pos_mask,
                 input_pos,
             )
 

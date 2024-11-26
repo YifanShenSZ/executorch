@@ -439,15 +439,19 @@ class CoreMLBackend(BackendDetails):
             compute_units=compute_units,
         )
 
+        with open("../Stories110M/torch.exported-program", 'w') as f:
+            print(edge_program, file=f)
+        mlmodel.save("../Stories110M/mlmodel.mlpackage")
+        with open("../Stories110M/mlmodel.pymil", 'w') as f:
+            print(mlmodel._mil_program, file=f)
+        with open("../Stories110M/mlmodel.stack-trace", 'w') as f:
+            print(mlmodel._mil_program.stringify_stack_trace(), file=f)
+
         if op_linear_quantizer_config is not None:
             logger.warning(
                 "Core ML Backend op_linear_quantizer_config API is experimental"
             )
-            config = cto.coreml.OptimizationConfig(
-                global_config=op_linear_quantizer_config,
-                # skip embedding
-                op_type_configs={"gather": None},
-            )
+            config = cto.coreml.OptimizationConfig(global_config=op_linear_quantizer_config)
             mlmodel = cto.coreml.linear_quantize_weights(mlmodel, config=config)
 
         return CoreMLBackend.preprocess_model(mlmodel, model_type=model_type)

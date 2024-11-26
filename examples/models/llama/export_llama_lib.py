@@ -63,8 +63,10 @@ from .source_transformation.rope import materialze_broadcast_of_rope_freq_cis
 from .source_transformation.sdpa import (
     replace_causal_mask,
     replace_kv_cache_with_coreml_kv_cache,
+    replace_kv_cache_with_coreml_experimental_kv_cache,
     replace_kv_cache_with_simple_kv_cache,
     replace_sdpa_with_coreml_sdpa,
+    replace_sdpa_with_coreml_experimental_sdpa,
     replace_sdpa_with_custom_op,
     replace_sdpa_with_flex_sdpa,
     replace_sdpa_with_simple_sdpa,
@@ -362,6 +364,11 @@ def build_args_parser() -> argparse.ArgumentParser:
         default=15,
         choices=(15, 16, 17, 18),
         help="This option is only for coreml: The minimum iOS version to deploy",
+    )
+    parser.add_argument(
+        "--coreml-experimental",
+        action="store_true",
+        help="This option is only for coreml: Use experimental config",
     )
     parser.add_argument(
         "--qnn",
@@ -696,6 +703,7 @@ def _export_llama(args) -> LLMEdgeManager:  # noqa: C901
             args.embedding_quantize,
             args.pt2e_quantize,
             args.coreml_quantize,
+            args.coreml_experimental,
         )
         partitioners.append(coreml_partitioner)
         modelname = f"coreml_{modelname}"
@@ -1073,12 +1081,12 @@ def _get_source_transforms(  # noqa
             transforms.append(replace_causal_mask)
 
         elif args.coreml:
-            # iOS 18 introduced fused sdpa op
-            if args.coreml_ios >= 18:
-                transforms.append(replace_sdpa_with_coreml_sdpa)
+            if args.coreml_experimental:
+                transforms.append(replace_sdpa_with_coreml_experimental_sdpa)
+                transforms.append(replace_kv_cache_with_coreml_experimental_kv_cache)
             else:
-                transforms.append(replace_sdpa_with_simple_sdpa)
-            transforms.append(replace_kv_cache_with_coreml_kv_cache)
+                transforms.append(replace_sdpa_with_coreml_sdpa)
+                transforms.append(replace_kv_cache_with_coreml_kv_cache)
 
     if args.vulkan:
         transforms.append(replace_with_vulkan_rotary_emb)
